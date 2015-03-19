@@ -1,16 +1,21 @@
-import pygame, math, numpy
+import pygame, math, numpy, networkx as nx
 from sklearn.neighbors import NearestNeighbors
+import matplotlib.pyplot as plt
 import fileinput
+import pygraph
 
+path_graph = nx.Graph()
 coord = []
 running = 1
 numConfig = 100
+numNearNgbr = 10
+epsilon = 50
 linecolor = 0, 200, 150
 robotcolor = 255,255,255
 bgcolor = 40, 40, 40
 HEIGHT = 1000
 WIDTH = 1000
-screen = pygame.display.set_mode((HEIGHT,WIDTH))
+# screen = pygame.display.set_mode((HEIGHT,WIDTH))
 
 #--------------------------------------------------------------------------------------
 
@@ -25,12 +30,14 @@ screen = pygame.display.set_mode((HEIGHT,WIDTH))
 # 	else :
 # 		return False
 #--------------------------------------------------------------------------------------
+
 def ccw(p1,p2,p3):
 	return (p3[1]-p1[1]) * (p2[0]-p1[0]) > (p2[1]-p1[1]) * (p3[0]-p1[0])
 
 # Return true if line segments AB and CD intersect
 def intersect(p1,p2,p3,p4):
 	return ccw(p1,p3,p4) != ccw(p2,p3,p4) and ccw(p1,p2,p3) != ccw(p1,p2,p4)
+
 #--------------------------------------------------------------------------------------
 
 def intersect_obst(coord,obst_vertex):
@@ -68,8 +75,37 @@ def generate_valid_configs(numDOF,numConfig,obst_vertex,link_len):
 			pass
 		else:
 			valid_conf.append(angle_conf)
+			path_graph.add_node(i)
 			i+=1
 	return valid_conf
+
+#--------------------------------------------------------------------------------------
+
+def gen_knn_graph(theta_array):
+	ngbr = NearestNeighbors(n_neighbors = numNearNgbr, algorithm = 'auto').fit(theta_array)
+	return ngbr.kneighbors(theta_array)
+
+#--------------------------------------------------------------------------------------
+
+def check_collision(Qstart, Qfinal):
+	# print numpy.linalg.norm(Qstart-Qfinal)
+	if(numpy.linalg.norm(Qstart-Qfinal) < epsilon):
+		return
+	Qmid = (Qstart + Qfinal)/2
+	if(intersect_obst(theta_to_coord(Qmid,numDOF,link_len),obst_vertex)):
+		return True
+	else:
+		check_collision(Qstart,Qmid)
+		check_collision(Qmid,Qfinal)
+
+def create_path_graph(dist,indices, theta_array):
+	for config in range(numConfig):
+		Qstart = theta_array[config]
+		for near_ngbr in range(1,numNearNgbr):
+			Qfinal = theta_array[indices[config, near_ngbr]]
+			# print near_ngbr
+			if(not check_collision(Qstart,Qfinal)):
+				path_graph.add_edge(config,indices[config,near_ngbr])
 
 #--------------------------------------------------------------------------------------
 
@@ -83,6 +119,7 @@ def robot_info(filename):
 	return numDOF,link_len,coord
 
 #--------------------------------------------------------------------------------------
+
 def goal_info(filename):
 	config = open(filename,"r+").read().split("\n")
 	angles = []
@@ -114,20 +151,26 @@ def draw_robot(angle_conf,link_len):
 
 #--------------------------------------------------------------------------------------
 numDOF,link_len,obst_vertex = robot_info("robot.dat")
-draw_obst(obst_vertex)
+# draw_obst(obst_vertex)
 
 goal_angles = goal_info("goals.dat")
 theta_array = generate_valid_configs(numDOF,numConfig,obst_vertex,link_len)
-while running:
-    event = pygame.event.poll()
-    if event.type == pygame.QUIT:
-        running = 0
+dist,indices = gen_knn_graph(theta_array)
+create_path_graph(dist,indices, theta_array)
+print path_graph.edges()
+nx.draw(path_graph)
+plt.draw()
+plt.show()
+# while running:
+#     event = pygame.event.poll()
+#     if event.type == pygame.QUIT:
+#         running = 0
 
-    screen.fill(bgcolor)
+#     screen.fill(bgcolor)
+
+#     for i in range(len(theta_array)):
+#     	draw_robot(theta_array[i],link_len)
+#     draw_obst(obst_vertex)
     
-    for i in range(len(theta_array)):
-    	draw_robot(theta_array[i],link_len)
-    draw_obst(obst_vertex)
-    
-    pygame.display.flip()
+#     pygame.display.flip()
 #--------------------------------------------------------------------------------------
